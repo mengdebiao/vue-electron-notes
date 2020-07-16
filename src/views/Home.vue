@@ -10,7 +10,12 @@
         @keyup.enter.native="handleSearch"
         clearable
       />
-      <file-list :fileList="fileList" :active.sync="activeIndex" />
+      <file-list :fileList="fileList" :active.sync="activeIndex" :selectedFile.sync="selectedFile">
+        <template v-slot:menu>
+          <li @click="handleFileTop()">{{ selectedFile.isTop ? '取消置顶' : '置顶' }}</li>
+          <li @click="fileDelete()">删除</li>
+        </template>
+      </file-list>
     </div>
     <div class="main-container">
       <div class="placeholder" v-if="fileList.length === 0">暂无笔记</div>
@@ -46,7 +51,8 @@ export default {
         title: '',
         content: ''
       },
-      activeIndex: 0
+      activeIndex: 0,
+      selectedFile: {} // 右键菜单选中的文件数据
     }
   },
   watch: {
@@ -60,8 +66,10 @@ export default {
   methods: {
     async init() {
       await this.getFileList()
+      if (this.fileList.length === 0) return
       const [firstFileItem] = this.fileList
       this.fileItem = firstFileItem
+      this.activeIndex = 0
     },
     // 搜索笔记
     handleSearch() {
@@ -79,7 +87,7 @@ export default {
     },
     // 获取笔记列表
     async getFileList(query = {}) {
-      const list = await this.$db.markdown.find(query).sort({ updatedAt: -1 })
+      const list = await this.$db.markdown.find(query).sort({ isTop: -1, updatedAt: -1 })
       // 格式化时间，添加内容备份字段
       this.fileList = list.map(item => {
         item.originalContent = item.content
@@ -90,7 +98,7 @@ export default {
     },
     // 新增笔记
     fileCreate() {
-      const defaultFile = { title: '无标题笔记', content: '' }
+      const defaultFile = { title: '无标题笔记', content: '', isTop: false }
       this.$db.markdown.insert(defaultFile).then(async () => {
         await this.getFileList()
         const [firstFileItem] = this.fileList
@@ -115,6 +123,34 @@ export default {
           this.refreshList()
         })
       }, 1000)
+    },
+    // 删除笔记
+    fileDelete() {
+      this.$confirm('此操作将永久删除该笔记, 是否继续?', '提示', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      })
+        .then(() => {
+          const { _id } = this.selectedFile
+          this.$db.markdown
+            .remove({ _id })
+            .then(num => {
+              this.$message.success(`删除了${num}个项目`)
+              this.init()
+            })
+            .catch(() => {
+              this.$message.error('删除失败')
+            })
+        })
+        .catch(() => {})
+    },
+    // 笔记置顶
+    handleFileTop() {
+      const { _id, isTop } = this.selectedFile
+      this.$db.markdown.update({ _id }, { $set: { isTop: !isTop } }).then(() => {
+        this.init()
+      })
     },
     // 刷新列表并高亮第一个笔记
     async refreshList() {
